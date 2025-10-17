@@ -1,0 +1,19 @@
+# Ignore files not needed in the Docker build context
+node_modules
+dist
+build
+.git
+.gitignore
+.vscode
+.idea
+.DS_Store
+coverage
+.nyc_output
+*.log
+logs
+.env
+.env.*
+Dockerfile*
+docker-compose*.yml
+
+

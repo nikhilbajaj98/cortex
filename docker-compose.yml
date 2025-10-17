@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  ingest:
+    build:
+      container_name: cortex-ingest
+      ports:
+        - 8080:8080
+      environment:
+        - NODE_ENV=production
+
+  cortex-db:
+    image: postgres:16
+    container_name: cortex-db
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cortex
+    ports:
+      - '5432:5432'
+
+  redpanda:
+    image: docker.redpanda.com/vectorized/redpanda:v24.1.4
+    container_name: cortex-redpanda
+    ports:
+      - '9092:9092' # Kafka API
+      - '9644:9644' # Admin API
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --kafka-addr 0.0.0.0:9092
+      - --advertise-kafka-addr localhost:9092
