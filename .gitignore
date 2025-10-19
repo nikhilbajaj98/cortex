@@ -38,4 +38,6 @@ coverage/
 # Docker
 *.tar
 
+#Postgres
+data/postgres/*
 
