@@ -7,6 +7,7 @@ import { kafkaProducer } from './services/messaging/kafkaProducer';
 import { kafkaAdmin } from './services/messaging/kafkaAdmin';
 import { createKafkaConsumer } from './services/messaging/kafkaConsumer';
 import { storageSinkConsumer } from './services/storage/consumers/storageConsumer';
+import { analyticsConsumer } from './services/analytics/analyticsConsumer';
 import logger from './utils/logger';
 
 const app = express();
@@ -31,7 +32,9 @@ app.get('/', (req, res) => {
     timestamp: new Date().toISOString(),
     endpoints: {
       api: '/api',
-      health: '/api/v1/health'
+      health: '/api/v1/health',
+      metrics: '/api/v1/metrics',
+      ingest: '/api/v1/ingest'
     }
   });
 });
@@ -70,6 +73,12 @@ async function initializeKafka(): Promise<void> {
     await storageConsumer.connect();
     await storageConsumer.subscribe('cortex-events', storageSinkConsumer.handleMessage.bind(storageSinkConsumer));
     await storageConsumer.startConsuming();
+
+    // Create and connect analytics consumer
+    const analyticsConsumerInstance = createKafkaConsumer('cortex-analytics-group');
+    await analyticsConsumerInstance.connect();
+    await analyticsConsumerInstance.subscribe('cortex-events', analyticsConsumer.handleMessage.bind(analyticsConsumer));
+    await analyticsConsumerInstance.startConsuming();
 
     logger.info('🚀 Kafka services initialized successfully');
 
