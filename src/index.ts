@@ -16,6 +16,9 @@ const PORT = process.env.PORT || 8080;
 // Security middleware
 app.use(helmet());
 
+// Behind Kong/ingress, trust proxy for correct client IPs and rate-limiting keys
+app.set('trust proxy', true);
+
 // Body parsing middleware
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));

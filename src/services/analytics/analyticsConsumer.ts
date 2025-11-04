@@ -1,23 +1,24 @@
 import { EachMessagePayload } from 'kafkajs';
 import logger from '../../utils/logger';
 import { CortexEvent } from '../../api/shared/types/event';
-import { MetricsCalculator } from './metricsCalculator';
-import { HealthScorer } from './healthScorer';
-import { Aggregator } from './aggregator';
+import { metricsCalculator, MetricsCalculator } from './metricsCalculator';
+import { healthScorer, HealthScorer } from './healthScorer';
+import { aggregator, Aggregator } from './aggregator';
 
 export class AnalyticsConsumer {
   private metricsCalculator: MetricsCalculator;
   private healthScorer: HealthScorer;
   private aggregator: Aggregator;
-  private batchSize: number = 100;
-  private batchTimeout: number = 5000; // 5 seconds
+  private batchSize: number = 1; // dev-fast flush
+  private batchTimeout: number = 500; // 0.5 seconds
   private eventBatch: CortexEvent[] = [];
   private batchTimer: NodeJS.Timeout | null = null;
 
   constructor() {
-    this.metricsCalculator = new MetricsCalculator();
-    this.healthScorer = new HealthScorer();
-    this.aggregator = new Aggregator();
+    // Use shared singletons so API routes can read the same caches
+    this.metricsCalculator = metricsCalculator;
+    this.healthScorer = healthScorer;
+    this.aggregator = aggregator;
     logger.info('AnalyticsConsumer initialized');
   }
 
