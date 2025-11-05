@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { metricsCalculator } from '../../services/analytics/metricsCalculator';
-import { healthScorer } from '../../services/analytics/healthScorer';
-import { aggregator } from '../../services/analytics/aggregator';
-import logger from '../../utils/logger';
+import { metricsCalculator } from '../../../services/analytics/metricsCalculator';
+import { healthScorer } from '../../../services/analytics/healthScorer';
+import { aggregator } from '../../../services/analytics/aggregator';
+import logger from '../../../utils/logger';
 import { apiRateLimit } from '../middleware/rateLimit';
 
 export const metricsRouter = Router();
@@ -121,16 +121,16 @@ metricsRouter.get('/health', async (req: Request, res: Response) => {
     logger.info('🏥 Fetching health scores for all services');
 
     const allHealthScores = healthScorer.getAllCachedHealthScores();
-    const healthScores = Array.from(allHealthScores.values());
+    const healthScores = Array.from(allHealthScores.values()) as any[];
 
     // Calculate overall system health
     const overallHealth = healthScores.length > 0 
       ? healthScores.reduce((sum, score) => sum + score.overallScore, 0) / healthScores.length
       : 0;
 
-    const healthyServices = healthScores.filter(s => s.status === 'healthy').length;
-    const warningServices = healthScores.filter(s => s.status === 'warning').length;
-    const criticalServices = healthScores.filter(s => s.status === 'critical').length;
+    const healthyServices = healthScores.filter((s: any) => s.status === 'healthy').length;
+    const warningServices = healthScores.filter((s: any) => s.status === 'warning').length;
+    const criticalServices = healthScores.filter((s: any) => s.status === 'critical').length;
 
     res.status(200).json({
       overallHealth: Math.round(overallHealth * 100) / 100,
@@ -164,13 +164,13 @@ metricsRouter.get('/overview', async (req: Request, res: Response) => {
     const timeWindowAggregations = aggregator.getAllTimeWindowAggregations();
 
     // Calculate system-wide metrics
-    const totalRequests = Array.from(allMetrics.values()).reduce((sum, m) => sum + m.totalRequests, 0);
-    const totalErrors = Array.from(allMetrics.values()).reduce((sum, m) => sum + m.failedRequests, 0);
-    const averageLatency = Array.from(allMetrics.values()).reduce((sum, m) => sum + m.averageLatency, 0) / allMetrics.size;
+    const totalRequests = Array.from(allMetrics.values()).reduce((sum, m: any) => sum + m.totalRequests, 0);
+    const totalErrors = Array.from(allMetrics.values()).reduce((sum, m: any) => sum + m.failedRequests, 0);
+    const averageLatency = Array.from(allMetrics.values()).reduce((sum, m: any) => sum + m.averageLatency, 0) / (allMetrics.size || 1);
     const overallErrorRate = totalRequests > 0 ? (totalErrors / totalRequests) * 100 : 0;
 
     // Calculate overall health
-    const healthScores = Array.from(allHealthScores.values());
+    const healthScores = Array.from(allHealthScores.values()) as any[];
     const overallHealth = healthScores.length > 0 
       ? healthScores.reduce((sum, score) => sum + score.overallScore, 0) / healthScores.length
       : 0;
