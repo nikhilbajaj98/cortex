@@ -117,6 +117,10 @@ export class MetricsCalculator {
     return new Map(this.metricsCache);
   }
 
+  public setCachedMetrics(service: string, metrics: ServiceMetrics): void {
+    this.metricsCache.set(service, metrics);
+  }
+
   public clearCache(): void {
     this.metricsCache.clear();
     logger.info('📊 Metrics cache cleared');

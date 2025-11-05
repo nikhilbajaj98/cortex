@@ -4,13 +4,14 @@ import { CortexEvent } from '../../api/shared/types/event';
 import { metricsCalculator, MetricsCalculator } from './metricsCalculator';
 import { healthScorer, HealthScorer } from './healthScorer';
 import { aggregator, Aggregator } from './aggregator';
+import { analyticsRepository } from './repositories/analyticsRepository';
 
 export class AnalyticsConsumer {
   private metricsCalculator: MetricsCalculator;
   private healthScorer: HealthScorer;
   private aggregator: Aggregator;
-  private batchSize: number = 1; // dev-fast flush
-  private batchTimeout: number = 500; // 0.5 seconds
+  private batchSize: number = parseInt(process.env.ANALYTICS_BATCH_SIZE || '500'); // Production batch size
+  private batchTimeout: number = parseInt(process.env.ANALYTICS_BATCH_TIMEOUT || '250'); // 250ms timeout
   private eventBatch: CortexEvent[] = [];
   private batchTimer: NodeJS.Timeout | null = null;
 
@@ -58,12 +59,22 @@ export class AnalyticsConsumer {
     this.eventBatch = []; // Clear the batch for new events
 
     try {
-      // Process batch: calculate metrics, health scores, and aggregations
-      await Promise.allSettled([
+      // Process batch: persist to ClickHouse, calculate metrics, health scores, and aggregations
+      const results = await Promise.allSettled([
+        // Persist to ClickHouse (don't fail the whole batch if this fails)
+        this.persistEvents(batch),
+        // Calculate metrics, health scores, and aggregations (in-memory cache)
         this.calculateMetrics(batch),
         this.calculateHealthScores(batch),
         this.processAggregations(batch),
       ]);
+
+      // Check if ClickHouse persistence failed
+      const persistenceResult = results[0];
+      if (persistenceResult.status === 'rejected') {
+        logger.warn(`⚠️ Failed to persist events to ClickHouse (continuing): ${persistenceResult.reason}`);
+        // TODO: Send to DLQ for retry
+      }
 
       logger.info(`📊 Processed analytics batch of ${batch.length} events`);
 
@@ -121,6 +132,17 @@ export class AnalyticsConsumer {
       logger.info(`🔄 Processed aggregations for ${events.length} events`);
     } catch (error) {
       logger.error(`❌ Failed to process aggregations: ${error}`);
+    }
+  }
+
+  private async persistEvents(events: CortexEvent[]): Promise<void> {
+    try {
+      // Determine source from event metadata
+      const source = events[0]?.metadata?.source === 'kong' ? 'kong' : 'direct';
+      await analyticsRepository.persistEvents(events, source);
+    } catch (error: any) {
+      logger.error(`❌ Failed to persist events to ClickHouse: ${error.message}`);
+      throw error; // Re-throw to be caught by Promise.allSettled
     }
   }
 
