@@ -40,6 +40,17 @@ function getConfig(): AppConfig {
       secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
       s3Bucket: process.env.S3_BUCKET || 'cortex-event-logs',
     },
+    
+    clickhouse: {
+      host: process.env.CLICKHOUSE_HOST || 'localhost',
+      port: parseInt(process.env.CLICKHOUSE_PORT || '8123'),
+      database: process.env.CLICKHOUSE_DB || 'cortex',
+      user: process.env.CLICKHOUSE_USER || 'default',
+      password: process.env.CLICKHOUSE_PASSWORD || '',
+      requestTimeout: parseInt(process.env.CLICKHOUSE_REQUEST_TIMEOUT || '30000'),
+      maxRetries: parseInt(process.env.CLICKHOUSE_MAX_RETRIES || '3'),
+      retryDelay: parseInt(process.env.CLICKHOUSE_RETRY_DELAY || '1000'),
+    },
   };
 }
 

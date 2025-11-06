@@ -8,6 +8,7 @@ import { kafkaAdmin } from './services/messaging/kafkaAdmin';
 import { createKafkaConsumer } from './services/messaging/kafkaConsumer';
 import { storageSinkConsumer } from './services/storage/consumers/storageConsumer';
 import { analyticsConsumer } from './services/analytics/analyticsConsumer';
+import { clickHouseClient } from './infrastructure/connections/clickhouse';
 import logger from './utils/logger';
 
 const app = express();
@@ -45,6 +46,33 @@ app.get('/', (req, res) => {
 // Error handling middleware
 app.use(notFoundHandler);
 app.use(errorHandler);
+
+// Initialize ClickHouse
+async function initializeClickHouse(): Promise<void> {
+  try {
+    logger.info('🔧 Starting ClickHouse initialization...');
+    
+    // Check if ClickHouse is reachable
+    const isHealthy = await clickHouseClient.ping();
+    if (!isHealthy) {
+      throw new Error('ClickHouse ping failed');
+    }
+
+    // Run health check to verify database and tables exist
+    const health = await clickHouseClient.healthCheck();
+    if (!health.healthy) {
+      logger.warn(`⚠️ ClickHouse health check warning: ${health.message}`);
+      logger.warn('⚠️ Continuing - tables may need to be created via migrations');
+    } else {
+      logger.info('✅ ClickHouse is healthy and ready');
+    }
+
+  } catch (error) {
+    logger.error(`❌ Failed to initialize ClickHouse: ${error}`);
+    logger.warn('⚠️ Continuing without ClickHouse - analytics persistence will be disabled');
+    // Don't exit - let the service continue without ClickHouse
+  }
+}
 
 // Initialize Kafka services
 async function initializeKafka(): Promise<void> {
@@ -112,6 +140,9 @@ app.listen(PORT, async () => {
   logger.info(`🚀 Cortex Service running on port ${PORT}`);
   logger.info(`📡 API available at http://localhost:${PORT}/api`);
   logger.info(`🏥 Health check available at http://localhost:${PORT}/api/v1/health`);
+
+  // Initialize ClickHouse first (analytics persistence)
+  await initializeClickHouse();
 
   // Initialize Kafka services
   await initializeKafka();

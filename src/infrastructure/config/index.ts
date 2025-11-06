@@ -33,6 +33,17 @@ export interface AWSConfig {
   s3Bucket: string;
 }
 
+export interface ClickHouseConfig {
+  host: string;
+  port: number;
+  database: string;
+  user: string;
+  password: string;
+  requestTimeout: number;
+  maxRetries: number;
+  retryDelay: number;
+}
+
 export interface AppConfig {
   port: number;
   nodeEnv: string;
@@ -41,4 +52,5 @@ export interface AppConfig {
   kafka: KafkaConfig;
   redis: RedisConfig;
   aws: AWSConfig;
+  clickhouse: ClickHouseConfig;
 }

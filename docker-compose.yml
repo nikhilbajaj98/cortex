@@ -4,11 +4,16 @@ services:
   cortex-db:
     image: postgres:16
     container_name: cortex-db
+    env_file:
+      - .env
     environment:
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: cortex
+      POSTGRES_USER: ${PG_USER}
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: ${PG_DATABASE}
     ports:
       - '5432:5432'
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
 
   redpanda:
     image: redpandadata/redpanda:latest
@@ -22,4 +27,80 @@ services:
       - --memory 512M
       - --overprovisioned
       - --kafka-addr 0.0.0.0:9092
-      - --advertise-kafka-addr localhost:9092
+      - --advertise-kafka-addr redpanda:9092
+
+  cortex-ingest:
+    build: .
+    container_name: cortex-ingest
+    ports:
+      - '8080:8080'
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PG_HOST=cortex-db
+      - PG_USER=${PG_USER}
+      - PG_PASSWORD=${PG_PASSWORD}
+      - PG_DATABASE=${PG_DATABASE}
+      - PG_PORT=${PG_PORT:-5432}
+      - KAFKA_BROKERS=${KAFKA_BROKERS:-redpanda:9092}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - S3_BUCKET=${S3_BUCKET}
+      - CLICKHOUSE_HOST=${CLICKHOUSE_HOST:-clickhouse}
+      - CLICKHOUSE_PORT=${CLICKHOUSE_PORT:-8123}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-cortex}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+    depends_on:
+      - cortex-db
+      - redpanda
+      - clickhouse
+    restart: unless-stopped
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: cortex-clickhouse
+    env_file:
+      - .env
+    environment:
+      CLICKHOUSE_DB: ${CLICKHOUSE_DB:-cortex}
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+    ports:
+      - '8123:8123' # HTTP interface
+      - '9000:9000' # Native protocol
+    volumes:
+      - ./data/clickhouse:/var/lib/clickhouse
+      - ./migrations/clickhouse:/docker-entrypoint-initdb.d
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  kong:
+    image: kong:3.6
+    container_name: cortex-kong
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+      KONG_PROXY_LISTEN: "0.0.0.0:8000"
+      KONG_ADMIN_LISTEN: "0.0.0.0:8001"
+      KONG_LOG_LEVEL: info
+      KONG_LOG_SECRET: ${KONG_LOG_SECRET:-changeme}
+      KONG_TEST_API_KEY: ${KONG_TEST_API_KEY:-test-key}
+    volumes:
+      - ./infra/kong/kong.yml:/kong/declarative/kong.yml:ro
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+    depends_on:
+      - cortex-ingest
+      - redpanda
