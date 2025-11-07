@@ -1,6 +1,6 @@
-import { Kafka, Admin } from 'kafkajs';
+import { Admin } from 'kafkajs';
 import logger from '../../utils/logger';
-import { config } from '../../infrastructure/config/environment';
+import { kafkaClient } from '../../infrastructure/connections/kafka';
 
 export interface TopicConfig {
   name: string;
@@ -11,23 +11,12 @@ export interface TopicConfig {
 
 export class KafkaAdminService {
   private admin: Admin;
-  private kafka: Kafka;
   private isConnected: boolean = false;
 
   constructor() {
     logger.info(`🔧 Kafka Admin - KAFKA_BROKERS: ${process.env.KAFKA_BROKERS}`);
-    logger.info(`🔧 Kafka Admin - config.kafka.brokers: ${JSON.stringify(config.kafka.brokers)}`);
     
-    this.kafka = new Kafka({
-      clientId: config.kafka.clientId,
-      brokers: config.kafka.brokers,
-      retry: {
-        initialRetryTime: config.kafka.retry.initialRetryTime,
-        retries: config.kafka.retry.retries,
-      },
-    });
-
-    this.admin = this.kafka.admin();
+    this.admin = kafkaClient.admin();
   }
 
   async connect(): Promise<void> {

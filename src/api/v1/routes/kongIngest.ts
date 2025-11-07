@@ -55,7 +55,16 @@ kongIngestRouter.post('/', async (req: Request, res: Response) => {
     const mapped = entries.map((entry) => {
       const requestId = (entry?.request?.headers?.['x-request-id'] || entry?.request?.headers?.['X-Request-ID']) as string | undefined;
       const started = entry?.started_at ? new Date(entry.started_at).toISOString() : new Date().toISOString();
-      const serviceName = entry?.route?.name || entry?.service?.name || 'unknown';
+      
+      // Extract service name from response headers (set by ingest endpoint)
+      // Fallback to route/service name if not available
+      const responseHeaders = entry?.response?.headers || {};
+      const serviceName = 
+        responseHeaders['x-cortex-service'] || 
+        responseHeaders['X-Cortex-Service'] ||
+        entry?.route?.name || 
+        entry?.service?.name || 
+        'unknown';
 
       return {
         type: 'http_request',

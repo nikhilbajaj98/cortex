@@ -66,3 +66,13 @@ export async function getServicesClient(timeWindow?: string): Promise<any | null
 export async function getServiceMetricsClient(serviceName: string, timeWindow = '5m'): Promise<any | null> {
   return get<any>(`/api/v1/metrics/service/${encodeURIComponent(serviceName)}?timeWindow=${timeWindow}`, true);
 }
+
+export async function getServiceTimeSeriesClient(
+  serviceName: string,
+  startTime: string,
+  endTime: string,
+  granularity: '1m' | '5m' | '15m' | '1h' = '5m'
+): Promise<any | null> {
+  const url = `/api/v1/metrics/service/${encodeURIComponent(serviceName)}/timeseries?startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}&granularity=${granularity}`;
+  return get<any>(url, true);
+}
