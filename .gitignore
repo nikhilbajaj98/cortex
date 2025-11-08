@@ -40,4 +40,5 @@ coverage/
 
 #Postgres
 data/postgres/*
+data/clickhouse/*
 

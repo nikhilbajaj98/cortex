@@ -81,7 +81,9 @@ metricsRouter.get('/service/:serviceName', async (req: Request, res: Response) =
 // Get metrics for all services
 metricsRouter.get('/services', async (req: Request, res: Response) => {
   try {
-    logger.info('📊 Fetching metrics for all services');
+    const { timeWindow = '5m' } = req.query;
+    const timeWindowStr = typeof timeWindow === 'string' ? timeWindow : '5m';
+    logger.info(`📊 Fetching metrics for all services (timeWindow: ${timeWindowStr})`);
 
     // Try to get active services from ClickHouse
     let activeServices: string[] = [];
@@ -95,24 +97,36 @@ metricsRouter.get('/services', async (req: Request, res: Response) => {
       activeServices = Array.from(allMetrics.keys());
     }
 
-    // Get metrics for each active service
+    // Get metrics for each active service with the specified time window
     const services = await Promise.all(
       activeServices.map(async (serviceName) => {
-        // Try cache first, then ClickHouse
-        let metrics = metricsCalculator.getCachedMetrics(serviceName);
-        if (!metrics) {
+        // Check cache first (but cache is per-service, not per-timeWindow, so we'll query ClickHouse)
+        const cacheKey = `${serviceName}:${timeWindowStr}`;
+        const cachedTimestamp = cacheTimestamps.get(cacheKey);
+        const isCacheStale = !cachedTimestamp || (Date.now() - cachedTimestamp) > CACHE_TTL_MS;
+
+        let metrics = isCacheStale ? null : metricsCalculator.getCachedMetrics(serviceName);
+        let healthScore = healthScorer.getCachedHealthScore(serviceName);
+        let aggregation = aggregator.getServiceAggregation(serviceName);
+
+        // Query ClickHouse with the specified time window
+        if (!metrics || isCacheStale) {
           try {
-            metrics = await analyticsRepository.getServiceMetrics(serviceName, '5m');
+            metrics = await analyticsRepository.getServiceMetrics(serviceName, timeWindowStr);
+            if (metrics) {
+              metricsCalculator.setCachedMetrics(serviceName, metrics);
+              cacheTimestamps.set(cacheKey, Date.now());
+            }
           } catch (error) {
-            // Ignore errors, use null
+            // Ignore errors, use cached metrics if available
           }
         }
 
         return {
           service: serviceName,
           metrics: metrics || null,
-          healthScore: healthScorer.getCachedHealthScore(serviceName) || null,
-          aggregation: aggregator.getServiceAggregation(serviceName) || null
+          healthScore: healthScore || null,
+          aggregation: aggregation || null
         };
       })
     );

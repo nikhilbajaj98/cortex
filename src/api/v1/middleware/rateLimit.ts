@@ -26,6 +26,6 @@ export const createRateLimit = (windowMs: number, max: number) => {
 };
 
 // Different rate limits for different endpoints
-export const ingestRateLimit = createRateLimit(15 * 60 * 1000, 1000); // 1000 requests per 15 minutes
-export const apiRateLimit = createRateLimit(15 * 60 * 1000, 100); // 100 requests per 15 minutes
-export const strictRateLimit = createRateLimit(15 * 60 * 1000, 10); // 10 requests per 15 minutes
+export const ingestRateLimit = createRateLimit(15 * 60 * 1000, 10000); // 10000 requests per 15 minutes
+export const apiRateLimit = createRateLimit(15 * 60 * 1000, 1000); // 1000 requests per 15 minutes
+export const strictRateLimit = createRateLimit(15 * 60 * 1000, 100); // 100 requests per 15 minutes

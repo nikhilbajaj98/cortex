@@ -1,6 +1,7 @@
-import { Kafka, Consumer, ConsumerConfig, EachMessagePayload } from 'kafkajs';
+import { Consumer, EachMessagePayload } from 'kafkajs';
 import logger from '../../utils/logger';
 import { config } from '../../infrastructure/config/environment';
+import { kafkaClient } from '../../infrastructure/connections/kafka';
 
 export interface ConsumerMessageHandler {
   (payload: EachMessagePayload): Promise<void>;
@@ -8,21 +9,11 @@ export interface ConsumerMessageHandler {
 
 export class KafkaConsumerService {
   private consumer: Consumer;
-  private kafka: Kafka;
   private isConnected: boolean = false;
   private messageHandlers: Map<string, ConsumerMessageHandler> = new Map();
 
   constructor(groupId?: string) {
-    this.kafka = new Kafka({
-      clientId: config.kafka.clientId,
-      brokers: config.kafka.brokers,
-      retry: {
-        initialRetryTime: config.kafka.retry.initialRetryTime,
-        retries: config.kafka.retry.retries,
-      },
-    });
-
-    this.consumer = this.kafka.consumer({
+    this.consumer = kafkaClient.consumer({
       groupId: groupId || config.kafka.groupId,
       sessionTimeout: 30000,
       heartbeatInterval: 3000,

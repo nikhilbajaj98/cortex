@@ -1,26 +1,15 @@
-import { Kafka, Producer, ProducerConfig } from 'kafkajs';
+import { Producer } from 'kafkajs';
 import logger from '../../utils/logger';
-import { config } from '../../infrastructure/config/environment';
+import { kafkaClient } from '../../infrastructure/connections/kafka';
 
 export class KafkaProducerService {
   private producer: Producer;
-  private kafka: Kafka;
   private isConnected: boolean = false;
 
   constructor() {
     logger.info(`🔧 Kafka Producer - KAFKA_BROKERS: ${process.env.KAFKA_BROKERS}`);
-    logger.info(`🔧 Kafka Producer - config.kafka.brokers: ${JSON.stringify(config.kafka.brokers)}`);
     
-    this.kafka = new Kafka({
-      clientId: config.kafka.clientId,
-      brokers: config.kafka.brokers,
-      retry: {
-        initialRetryTime: config.kafka.retry.initialRetryTime,
-        retries: config.kafka.retry.retries,
-      },
-    });
-
-    this.producer = this.kafka.producer({
+    this.producer = kafkaClient.producer({
       maxInFlightRequests: 1,
       idempotent: true,
       transactionTimeout: 30000,

@@ -13,6 +13,10 @@ ingestRouter.post('/', async (req: Request, res: Response) => {
     const event = req.body;
     logger.info(`📩 Received event: ${JSON.stringify(event)}`);
 
+    // Add service name to response header so Kong's http-log can capture it
+    const serviceName = event?.service || 'unknown';
+    res.setHeader('X-Cortex-Service', serviceName);
+
     await processEvent(event);
 
     res.status(200).json({ 
