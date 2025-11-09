@@ -1,7 +1,10 @@
 FROM node:20-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json* ./
-RUN npm ci --no-audit --no-fund
+COPY package.json package-lock.json* pnpm-lock.yaml* yarn.lock* ./
+RUN if [ -f package-lock.json ]; then npm ci; \
+    elif [ -f yarn.lock ]; then yarn --frozen-lockfile; \
+    elif [ -f pnpm-lock.yaml ]; then npm i -g pnpm && pnpm i --frozen-lockfile; \
+    else npm i; fi
 
 FROM node:20-alpine AS builder
 WORKDIR /app
