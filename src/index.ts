@@ -2,6 +2,7 @@ import express from 'express';
 import bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { apiRouter } from './api';
+import { metricsRegistry } from './observability/metrics';
 import { errorHandler, notFoundHandler } from './api/v1/middleware/errorHandler';
 import { kafkaProducer } from './services/messaging/kafkaProducer';
 import { kafkaAdmin } from './services/messaging/kafkaAdmin';
@@ -26,6 +27,12 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 
 // API routes
 app.use('/api', apiRouter);
+
+app.get('/metrics', async (_req, res) => {
+  await metricsRegistry.updateClickHouseHealthGauge();
+  res.setHeader('Content-Type', 'text/plain; version=0.0.4');
+  res.status(200).send(metricsRegistry.renderPrometheus());
+});
 
 // Root endpoint
 app.get('/', (req, res) => {

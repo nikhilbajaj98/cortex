@@ -3,6 +3,7 @@ import { metricsCalculator } from '../../../services/analytics/metricsCalculator
 import { healthScorer } from '../../../services/analytics/healthScorer';
 import { aggregator } from '../../../services/analytics/aggregator';
 import { analyticsRepository } from '../../../services/analytics/repositories/analyticsRepository';
+import { anomalyDetector } from '../../../services/analytics/anomalyDetector';
 import logger from '../../../utils/logger';
 import { apiRateLimit } from '../middleware/rateLimit';
 
@@ -29,7 +30,7 @@ metricsRouter.get('/service/:serviceName', async (req: Request, res: Response) =
     const cachedTimestamp = cacheTimestamps.get(cacheKey);
     const isCacheStale = !cachedTimestamp || (Date.now() - cachedTimestamp) > CACHE_TTL_MS;
 
-    let metrics = metricsCalculator.getCachedMetrics(serviceName);
+    let metrics = metricsCalculator.getCachedMetrics(serviceName, timeWindowStr);
     let healthScore = healthScorer.getCachedHealthScore(serviceName);
     let serviceAggregation = aggregator.getServiceAggregation(serviceName);
 
@@ -38,11 +39,11 @@ metricsRouter.get('/service/:serviceName', async (req: Request, res: Response) =
       try {
         const clickHouseMetrics = await analyticsRepository.getServiceMetrics(serviceName, timeWindowStr);
         if (clickHouseMetrics) {
-          // Update cache with fresh data from ClickHouse
-          metricsCalculator.setCachedMetrics(serviceName, clickHouseMetrics);
+          // Update cache with fresh data from ClickHouse (include timeWindow in cache key)
+          metricsCalculator.setCachedMetrics(serviceName, clickHouseMetrics, timeWindowStr);
           metrics = clickHouseMetrics;
           cacheTimestamps.set(cacheKey, Date.now());
-          logger.debug(`✅ Fetched metrics from ClickHouse for ${serviceName}`);
+          logger.debug(`✅ Fetched metrics from ClickHouse for ${serviceName} (window: ${timeWindowStr})`);
         }
       } catch (error: any) {
         logger.warn(`⚠️ Failed to query ClickHouse, using cache: ${error.message}`);
@@ -78,6 +79,29 @@ metricsRouter.get('/service/:serviceName', async (req: Request, res: Response) =
   }
 });
 
+// Get current anomalies for all services
+metricsRouter.get('/anomalies', async (_req: Request, res: Response) => {
+  try {
+    const anomalies = anomalyDetector.getAll();
+    res.status(200).json({ anomalies, total: anomalies.length, timestamp: new Date().toISOString() });
+  } catch (error) {
+    logger.error(`❌ Error fetching anomalies: ${error}`);
+    res.status(500).json({ error: 'InternalServerError', message: 'Internal Server Error', timestamp: new Date().toISOString() });
+  }
+});
+
+// Get anomaly (if any) for a specific service
+metricsRouter.get('/service/:serviceName/anomalies', async (req: Request, res: Response) => {
+  try {
+    const { serviceName } = req.params;
+    const anomaly = anomalyDetector.getForService(serviceName);
+    res.status(200).json({ service: serviceName, anomaly, timestamp: new Date().toISOString() });
+  } catch (error) {
+    logger.error(`❌ Error fetching service anomaly: ${error}`);
+    res.status(500).json({ error: 'InternalServerError', message: 'Internal Server Error', timestamp: new Date().toISOString() });
+  }
+});
+
 // Get metrics for all services
 metricsRouter.get('/services', async (req: Request, res: Response) => {
   try {
@@ -105,7 +129,7 @@ metricsRouter.get('/services', async (req: Request, res: Response) => {
         const cachedTimestamp = cacheTimestamps.get(cacheKey);
         const isCacheStale = !cachedTimestamp || (Date.now() - cachedTimestamp) > CACHE_TTL_MS;
 
-        let metrics = isCacheStale ? null : metricsCalculator.getCachedMetrics(serviceName);
+        let metrics = isCacheStale ? null : metricsCalculator.getCachedMetrics(serviceName, timeWindowStr);
         let healthScore = healthScorer.getCachedHealthScore(serviceName);
         let aggregation = aggregator.getServiceAggregation(serviceName);
 
@@ -114,7 +138,7 @@ metricsRouter.get('/services', async (req: Request, res: Response) => {
           try {
             metrics = await analyticsRepository.getServiceMetrics(serviceName, timeWindowStr);
             if (metrics) {
-              metricsCalculator.setCachedMetrics(serviceName, metrics);
+              metricsCalculator.setCachedMetrics(serviceName, metrics, timeWindowStr);
               cacheTimestamps.set(cacheKey, Date.now());
             }
           } catch (error) {

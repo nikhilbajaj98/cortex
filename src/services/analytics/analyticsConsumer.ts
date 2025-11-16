@@ -5,6 +5,8 @@ import { metricsCalculator, MetricsCalculator } from './metricsCalculator';
 import { healthScorer, HealthScorer } from './healthScorer';
 import { aggregator, Aggregator } from './aggregator';
 import { analyticsRepository } from './repositories/analyticsRepository';
+import { anomalyDetector } from './anomalyDetector';
+import { metricsRegistry, METRIC_COUNTERS } from '../../observability/metrics';
 
 export class AnalyticsConsumer {
   private metricsCalculator: MetricsCalculator;
@@ -59,23 +61,66 @@ export class AnalyticsConsumer {
     this.eventBatch = []; // Clear the batch for new events
 
     try {
-      // Process batch: persist to ClickHouse, calculate metrics, health scores, and aggregations
-      const results = await Promise.allSettled([
-        // Persist to ClickHouse (don't fail the whole batch if this fails)
-        this.persistEvents(batch),
-        // Calculate metrics, health scores, and aggregations (in-memory cache)
+      // Step 1: Persist to ClickHouse first (critical for control plane decisions)
+      const persistenceResult = await Promise.allSettled([this.persistEvents(batch)]);
+      if (persistenceResult[0].status === 'rejected') {
+        logger.warn(`⚠️ Failed to persist events to ClickHouse (continuing): ${persistenceResult[0].reason}`);
+        metricsRegistry.incCounter(METRIC_COUNTERS.batchesPersistFailed.name, METRIC_COUNTERS.batchesPersistFailed.help, 1);
+      }
+
+      // Step 2: Get unique services from batch for ClickHouse queries
+      const services = Array.from(new Set(batch.map(e => e.service)));
+
+      // Step 3: Query ClickHouse for complete metrics (after persistence)
+      // This ensures anomaly detector and control plane see complete data, not just batch data
+      // Note: ClickHouse materialized views update synchronously, so data should be available immediately
+      // If query returns null (no data yet), we'll use batch metrics as fallback
+      const clickHouseMetricsPromises = services.map(service => 
+        analyticsRepository.getServiceMetrics(service, '5m').catch(err => {
+          logger.warn(`⚠️ Failed to query ClickHouse metrics for ${service}: ${err.message}`);
+          return null;
+        })
+      );
+
+      const clickHouseMetrics = await Promise.all(clickHouseMetricsPromises);
+
+      // Step 4: Feed complete metrics to anomaly detector (for control plane decisions)
+      for (let i = 0; i < services.length; i++) {
+        const service = services[i];
+        const completeMetrics = clickHouseMetrics[i];
+        
+        if (completeMetrics) {
+          // Feed complete metrics to anomaly detector (CRITICAL for control plane)
+          // This ensures decisions are based on all events in the time window, not just the current batch
+          anomalyDetector.evaluate(service, completeMetrics.p95Latency, completeMetrics.errorRate);
+          
+          // Update in-memory cache with complete metrics (for UI fast path)
+          metricsCalculator.setCachedMetrics(service, completeMetrics, '5m');
+          
+          logger.debug(`✅ Updated metrics for ${service} from ClickHouse: ${completeMetrics.totalRequests} requests, p95: ${completeMetrics.p95Latency}ms`);
+        } else {
+          // Fallback: If ClickHouse query fails or returns null, use batch metrics
+          // This is acceptable for the first batch or if ClickHouse is unavailable
+          logger.debug(`⚠️ ClickHouse metrics not available for ${service}, using batch metrics as fallback`);
+          const serviceEvents = batch.filter(e => e.service === service);
+          if (serviceEvents.length > 0) {
+            const batchMetrics = await this.metricsCalculator.calculateServiceMetrics(service, serviceEvents);
+            // Only use batch metrics for anomaly detection if ClickHouse is unavailable
+            // This ensures we don't miss critical anomalies even during ClickHouse outages
+            anomalyDetector.evaluate(service, batchMetrics.p95Latency, batchMetrics.errorRate);
+          }
+        }
+      }
+
+      // Step 5: Calculate in-memory metrics, health scores, and aggregations (for UI/compatibility)
+      // Note: These are still useful for UI display, but control plane should use ClickHouse data
+      await Promise.allSettled([
         this.calculateMetrics(batch),
         this.calculateHealthScores(batch),
         this.processAggregations(batch),
       ]);
 
-      // Check if ClickHouse persistence failed
-      const persistenceResult = results[0];
-      if (persistenceResult.status === 'rejected') {
-        logger.warn(`⚠️ Failed to persist events to ClickHouse (continuing): ${persistenceResult.reason}`);
-        // TODO: Send to DLQ for retry
-      }
-
+      metricsRegistry.incCounter(METRIC_COUNTERS.batchesProcessed.name, METRIC_COUNTERS.batchesProcessed.help, 1);
       logger.info(`📊 Processed analytics batch of ${batch.length} events`);
 
     } catch (error) {
@@ -97,11 +142,15 @@ export class AnalyticsConsumer {
   private async calculateMetrics(events: CortexEvent[]): Promise<void> {
     try {
       // Group events by service for metrics calculation
+      // NOTE: This is for in-memory cache (UI fast path). Control plane should use ClickHouse data.
       const serviceGroups = this.groupEventsByService(events);
       
       for (const [service, serviceEvents] of serviceGroups) {
         const metrics = await this.metricsCalculator.calculateServiceMetrics(service, serviceEvents);
-        logger.info(`📈 Calculated metrics for service ${service}: ${JSON.stringify(metrics)}`);
+        logger.debug(`📈 Calculated in-memory metrics for service ${service}: ${metrics.totalRequests} requests`);
+        
+        // NOTE: Anomaly detector is now fed from ClickHouse in processBatch(), not here
+        // This ensures control plane decisions are based on complete data, not batch-only data
       }
     } catch (error) {
       logger.error(`❌ Failed to calculate metrics: ${error}`);
@@ -136,13 +185,26 @@ export class AnalyticsConsumer {
   }
 
   private async persistEvents(events: CortexEvent[]): Promise<void> {
+    const source = events[0]?.metadata?.source === 'kong' ? 'kong' : 'direct';
+
     try {
-      // Determine source from event metadata
-      const source = events[0]?.metadata?.source === 'kong' ? 'kong' : 'direct';
+      // ClickHouse client handles retries internally (with circuit breaker)
+      // No need for additional retry logic here to avoid n*m retry multiplication
       await analyticsRepository.persistEvents(events, source);
     } catch (error: any) {
-      logger.error(`❌ Failed to persist events to ClickHouse: ${error.message}`);
-      throw error; // Re-throw to be caught by Promise.allSettled
+      // If ClickHouse client exhausted all retries, send to DLQ for later replay
+      logger.error(`❌ ClickHouse persistence failed after client retries: ${error.message}`);
+      
+      try {
+        const { kafkaProducer } = await import('../messaging/kafkaProducer');
+        await kafkaProducer.publishBatch('cortex-events-dlq', events, 'service');
+        logger.error(`🚨 Sent ${events.length} events to DLQ: cortex-events-dlq`);
+      } catch (dlqErr: any) {
+        logger.error(`❌ Failed to send events to DLQ: ${dlqErr.message}`);
+      }
+
+      // Re-throw to signal failure (but events are safely in DLQ)
+      throw error;
     }
   }
 

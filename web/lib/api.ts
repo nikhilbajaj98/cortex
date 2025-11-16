@@ -76,3 +76,11 @@ export async function getServiceTimeSeriesClient(
   const url = `/api/v1/metrics/service/${encodeURIComponent(serviceName)}/timeseries?startTime=${encodeURIComponent(startTime)}&endTime=${encodeURIComponent(endTime)}&granularity=${granularity}`;
   return get<any>(url, true);
 }
+
+export async function getAnomaliesClient(): Promise<any | null> {
+  return get<any>('/api/v1/metrics/anomalies', true);
+}
+
+export async function getServiceAnomalyClient(serviceName: string): Promise<any | null> {
+  return get<any>(`/api/v1/metrics/service/${encodeURIComponent(serviceName)}/anomalies`, true);
+}

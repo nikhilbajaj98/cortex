@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { getServicesClient } from '../../lib/api';
+import { getServicesClient, getAnomaliesClient } from '../../lib/api';
 
 const TIME_WINDOWS = [
   { value: '5m', label: '5 minutes' },
@@ -12,6 +12,7 @@ const TIME_WINDOWS = [
 
 export default function ServicesPage() {
   const [data, setData] = useState<any>(null);
+  const [anomalies, setAnomalies] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeWindow, setTimeWindow] = useState('5m');
@@ -20,9 +21,19 @@ export default function ServicesPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await getServicesClient(window);
-      if (result) {
-        setData(result);
+      const [servicesRes, anomaliesRes] = await Promise.all([
+        getServicesClient(window),
+        getAnomaliesClient(),
+      ]);
+      if (servicesRes) {
+        setData(servicesRes);
+        if (anomaliesRes?.anomalies) {
+          const map: Record<string, any> = {};
+          for (const a of anomaliesRes.anomalies) map[a.service] = a;
+          setAnomalies(map);
+        } else {
+          setAnomalies({});
+        }
       } else {
         setError('Failed to load data');
       }
@@ -92,7 +103,15 @@ export default function ServicesPage() {
               </td>
               <td>{s.metrics?.p95Latency ?? '-'}</td>
               <td>{s.metrics?.errorRate ?? '-'}%</td>
-              <td><strong>{s.metrics?.totalRequests ?? 0}</strong></td>
+              <td>
+                <strong>{s.metrics?.totalRequests ?? 0}</strong>
+                {anomalies[s.service] ? (
+                  <span title={`Anomaly: ${anomalies[s.service].metric} z=${(anomalies[s.service].zScore || 0).toFixed(2)}`}
+                        style={{ marginLeft: 8, padding: '2px 6px', borderRadius: 10, background: '#ffe6e6', color: '#b30000', fontSize: 12 }}>
+                    Anomaly
+                  </span>
+                ) : null}
+              </td>
             </tr>
           ))}
         </tbody>
