@@ -1,3 +1,37 @@
+node_modules
+npm-debug.log
+yarn-error.log
+.next
+.turbo
+.cache
+.DS_Store
+dist
+coverage
+
+# Docker artifacts
+docker-compose.override.yml
+Dockerfile.*
+
+# Local data volumes (mounted at runtime only)
+data/
+logs/
+tmp/
+
+# Environment files
+.env
+.env.*
+.env.test
+
+# Git metadata
+.git
+.gitignore
+.gitmodules
+
+# IDE/editor configs
+.vscode
+.idea
+.fleet
+.history
 # Ignore files not needed in the Docker build context
 node_modules
 dist

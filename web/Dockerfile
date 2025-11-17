@@ -15,6 +15,8 @@ ENV NEXT_PUBLIC_KONG_URL=$NEXT_PUBLIC_KONG_URL
 ENV NEXT_PUBLIC_KONG_API_KEY=$NEXT_PUBLIC_KONG_API_KEY
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Ensure public directory exists (create .gitkeep if directory is empty)
+RUN mkdir -p ./public && touch ./public/.gitkeep
 RUN npm run build
 
 FROM node:20-alpine AS runner
@@ -24,6 +26,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/package.json ./package.json
+# Copy public directory (now guaranteed to exist with .gitkeep from builder stage)
 COPY --from=builder /app/public ./public
 EXPOSE 3000
 CMD ["npm", "start"]
