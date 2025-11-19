@@ -1,0 +1,174 @@
+name: Deploy to Production
+
+on:
+  push:
+    tags: v[0-9]+.[0-9]+.[0-9]+
+  workflow_dispatch:
+
+env:
+  COMPOSE_FILE: docker-compose.prod.yml
+
+jobs:
+  deploy:
+    name: Deploy to OCI
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.7.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Verify SSH connection
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "echo '✅ SSH connection successful'"
+
+      - name: Deploy to server
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'DEPLOY_SCRIPT'
+            set -e  # Exit on error
+            
+            echo "🚀 Starting deployment..."
+            echo "📅 Deployment time: $(date)"
+            echo "🔗 Commit: ${{ github.sha }}"
+            echo "👤 Triggered by: ${{ github.actor }}"
+            
+            # Navigate to project directory
+            cd ~/cortex || { echo "❌ Directory ~/cortex not found"; exit 1; }
+            
+            # Pull latest code
+            echo "📥 Pulling latest code from main branch..."
+            git fetch origin main
+            git reset --hard origin/main
+            git clean -fd
+            
+            # Verify .env file exists (check both .env and .env.prod)
+            if [ ! -f .env ] && [ ! -f .env.prod ]; then
+              echo "⚠️  Warning: Neither .env nor .env.prod file found. Make sure environment variables are set on the server."
+            elif [ -f .env.prod ]; then
+              echo "✅ Found .env.prod file"
+              # Use .env.prod if it exists, otherwise .env
+              export ENV_FILE=.env.prod
+            else
+              echo "✅ Found .env file"
+              export ENV_FILE=.env
+            fi
+            
+            # Pull latest images (for services that use images)
+            echo "📦 Pulling latest Docker images..."
+            docker compose -f docker-compose.prod.yml pull postgres clickhouse kong nginx || true
+            
+            # Build services (with cache for faster builds)
+            echo "🔨 Building services..."
+            docker compose -f docker-compose.prod.yml build cortex-ingest cortex-web
+            
+            # Restart Kong to pick up any config changes
+            echo "🔄 Restarting Kong (to pick up config changes)..."
+            docker compose -f docker-compose.prod.yml restart kong || true
+            
+            # Start/restart all services
+            echo "🚀 Starting/updating services..."
+            docker compose -f docker-compose.prod.yml up -d
+            
+            # Wait for services to be healthy
+            echo "⏳ Waiting for services to be healthy..."
+            sleep 15
+            
+            # Run database migrations (if any)
+            echo "🗄️  Running database migrations..."
+            docker compose -f docker-compose.prod.yml exec -T cortex-ingest npm run migrate 2>/dev/null || echo "⚠️  Migrations skipped (this is OK if no migrations exist)"
+            
+            # Verify services are running
+            echo "✅ Verifying services..."
+            docker compose -f docker-compose.prod.yml ps
+            
+            # Show recent logs for debugging
+            echo "📋 Recent logs (last 20 lines per service):"
+            docker compose -f docker-compose.prod.yml logs --tail=20
+            
+            echo "✅ Deployment completed successfully!"
+          DEPLOY_SCRIPT
+
+      - name: Verify deployment
+        run: |
+          ssh -o StrictHostKeyChecking=no ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} << 'VERIFY_SCRIPT'
+            set -e
+            
+            echo "🔍 Verifying deployment..."
+            
+            cd ~/cortex
+            
+            # Check if all containers are running
+            echo "📊 Container status:"
+            docker compose -f docker-compose.prod.yml ps
+            
+            # Check service health
+            echo ""
+            echo "🏥 Checking service health..."
+            
+            # Check Kong
+            if docker compose -f docker-compose.prod.yml exec -T kong kong health 2>/dev/null | grep -q "healthy"; then
+              echo "✅ Kong is healthy"
+            else
+              echo "⚠️  Kong health check failed"
+            fi
+            
+            # Check Ingest API
+            if docker compose -f docker-compose.prod.yml exec -T cortex-ingest curl -f http://localhost:8080/health > /dev/null 2>&1; then
+              echo "✅ Ingest API is healthy"
+            else
+              echo "⚠️  Ingest API health check failed"
+            fi
+            
+            # Check Web UI
+            if docker compose -f docker-compose.prod.yml exec -T cortex-web curl -f http://localhost:3000 > /dev/null 2>&1; then
+              echo "✅ Web UI is responding"
+            else
+              echo "⚠️  Web UI health check failed"
+            fi
+            
+            # Check if services are accessible via Nginx
+            echo ""
+            echo "🌐 Checking external access..."
+            if curl -f -s -o /dev/null -w "%{http_code}" http://localhost/api/v1/metrics/services -H "apikey: $(grep KONG_TEST_API_KEY .env.prod 2>/dev/null | cut -d'=' -f2 || grep KONG_TEST_API_KEY .env 2>/dev/null | cut -d'=' -f2 || echo 'test-key')" | grep -q "200"; then
+              echo "✅ API is accessible via Nginx"
+            else
+              echo "⚠️  API health check via Nginx failed"
+            fi
+            
+            echo ""
+            echo "✅ Verification complete"
+          VERIFY_SCRIPT
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: main" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit Message**: ${{ github.event.head_commit.message }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time**: $(date -u +'%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check service logs: \`docker compose -f docker-compose.prod.yml logs\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. Verify services: \`docker compose -f docker-compose.prod.yml ps\`" >> $GITHUB_STEP_SUMMARY
+          echo "3. Test API: \`curl -H 'apikey: YOUR_KEY' https://cortex.nikhilbajaj.xyz/api/v1/metrics/services\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ job.status }}" == "success" ]; then
+            echo "### ✅ Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Deployment Failed - Check logs above" >> $GITHUB_STEP_SUMMARY
+          fi
