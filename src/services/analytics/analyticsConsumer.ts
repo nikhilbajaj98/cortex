@@ -147,10 +147,12 @@ export class AnalyticsConsumer {
       
       for (const [service, serviceEvents] of serviceGroups) {
         const metrics = await this.metricsCalculator.calculateServiceMetrics(service, serviceEvents);
-        logger.debug(`📈 Calculated in-memory metrics for service ${service}: ${metrics.totalRequests} requests`);
-        
-        // NOTE: Anomaly detector is now fed from ClickHouse in processBatch(), not here
-        // This ensures control plane decisions are based on complete data, not batch-only data
+        logger.info(`📈 Calculated metrics for service ${service}: ${JSON.stringify(metrics)}`);
+
+        // Feed anomaly detector with p95 latency and error rate
+        if (metrics && typeof metrics.p95Latency === 'number' && typeof metrics.errorRate === 'number') {
+          anomalyDetector.evaluate(service, metrics.p95Latency, metrics.errorRate);
+        }
       }
     } catch (error) {
       logger.error(`❌ Failed to calculate metrics: ${error}`);

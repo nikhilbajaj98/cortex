@@ -67,6 +67,36 @@ services:
               header_name: "X-Request-ID"
               generator: "uuid"
               echo_downstream: true
+  - name: cortex-demo-svc
+    url: http://cortex-ingest:8080
+    routes:
+      - name: cortex-demo-route
+        paths:
+          - "/api/v1/demo"
+        methods: ["GET", "POST", "OPTIONS"]
+        strip_path: false
+        plugins:
+          - name: cors
+            config:
+              origins: ["*"]
+              methods: ["GET", "POST", "OPTIONS"]
+              headers: ["Accept", "Content-Type", "X-Request-ID", "apikey", "Authorization"]
+              exposed_headers: ["X-Request-ID", "X-Kong-Request-Id"]
+              credentials: false
+              max_age: 3600
+              preflight_continue: false
+          - name: key-auth
+            config:
+              hide_credentials: false
+          - name: rate-limiting
+            config:
+              minute: 1800
+              policy: local
+          - name: correlation-id
+            config:
+              header_name: "X-Request-ID"
+              generator: "uuid"
+              echo_downstream: true
 
 plugins:
   - name: cors

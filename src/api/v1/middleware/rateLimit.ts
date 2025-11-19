@@ -29,3 +29,4 @@ export const createRateLimit = (windowMs: number, max: number) => {
 export const ingestRateLimit = createRateLimit(15 * 60 * 1000, 10000); // 10000 requests per 15 minutes
 export const apiRateLimit = createRateLimit(15 * 60 * 1000, 1000); // 1000 requests per 15 minutes
 export const strictRateLimit = createRateLimit(15 * 60 * 1000, 100); // 100 requests per 15 minutes
+export const demoRateLimit = createRateLimit(1 * 60 * 1000, 3000); // 3000 requests per minute (50 per second) - permissive for demo polling
