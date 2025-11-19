@@ -2,8 +2,14 @@ name: Deploy to Production
 
 on:
   push:
-    tags: v[0-9]+.[0-9]+.[0-9]+
+    tags:
+      - 'v*.*.*'
   workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to deploy'
+        required: false
+        default: 'main'
 
 env:
   COMPOSE_FILE: docker-compose.prod.yml
@@ -47,10 +53,31 @@ jobs:
             cd ~/cortex || { echo "❌ Directory ~/cortex not found"; exit 1; }
             
             # Pull latest code
-            echo "📥 Pulling latest code from main branch..."
-            git fetch origin main
-            git reset --hard origin/main
-            git clean -fd
+            echo "📥 Pulling latest code..."
+            # Fetch all branches and tags
+            git fetch --all --tags
+            
+            # Determine which ref to checkout
+            if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+              TAG_NAME=$(echo "${{ github.ref }}" | sed 's/refs\/tags\///')
+              echo "📌 Checking out tag: $TAG_NAME"
+              git checkout tags/$TAG_NAME
+            elif [ -n "${{ github.event.inputs.branch }}" ]; then
+              BRANCH="${{ github.event.inputs.branch }}"
+              echo "🌿 Checking out branch: $BRANCH"
+              git fetch origin $BRANCH
+              git reset --hard origin/$BRANCH
+            else
+              echo "🌿 Checking out main branch"
+              git fetch origin main
+              git reset --hard origin/main
+            fi
+            
+            # Clean untracked files (data/ directory is ignored and contains Docker volumes)
+            # Note: git reset --hard already discards tracked file changes
+            # We skip git clean to avoid permission issues with Docker-owned files in data/
+            echo "🧹 Skipping git clean (data/ directory contains Docker volumes with restricted permissions)"
+            echo "✅ Code updated via git reset --hard"
             
             # Verify .env file exists (check both .env and .env.prod)
             if [ ! -f .env ] && [ ! -f .env.prod ]; then
@@ -156,7 +183,8 @@ jobs:
           echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Status**: ${{ job.status }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Branch**: main" >> $GITHUB_STEP_SUMMARY
+          echo "- **Ref**: ${{ github.ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch/Tag**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit Message**: ${{ github.event.head_commit.message }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Triggered by**: ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
