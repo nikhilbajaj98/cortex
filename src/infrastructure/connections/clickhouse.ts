@@ -138,6 +138,90 @@ export class ClickHouseClient {
   }
 
   /**
+   * Execute a command against ClickHouse (DDL / non-JSON).
+   *
+   * Important:
+   * - Does NOT append FORMAT JSON (ClickHouse errors on DDL + FORMAT).
+   * - Returns raw response text (often empty for DDL).
+   */
+  async executeCommand(command: string, params?: Record<string, any>): Promise<string> {
+    if (this.circuitBreakerOpen) {
+      throw new Error('ClickHouse circuit breaker is open - service unavailable');
+    }
+
+    let lastError: Error | null = null;
+
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      try {
+        const url = new URL(`${this.baseUrl}/?database=${this.database}`);
+        const fullCommand = command.trim().endsWith(';') ? command.trim().slice(0, -1) : command.trim();
+        url.searchParams.set('query', fullCommand);
+
+        if (params) {
+          Object.entries(params).forEach(([key, value]) => {
+            url.searchParams.set(`param_${key}`, String(value));
+          });
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), this.requestTimeout);
+
+        const response = await fetch(url.toString(), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'text/plain',
+            'Authorization': `Basic ${Buffer.from(`${this.user}:${this.password}`).toString('base64')}`,
+          },
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`ClickHouse command failed: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const text = await response.text();
+
+        // Reset circuit breaker on success
+        this.circuitBreakerFailures = 0;
+        this.circuitBreakerOpen = false;
+
+        return text;
+      } catch (error: any) {
+        lastError = error;
+
+        if (error.name === 'AbortError') {
+          throw new Error(`ClickHouse command timeout after ${this.requestTimeout}ms`);
+        }
+
+        if (attempt < this.maxRetries) {
+          const delay = this.retryDelay * Math.pow(2, attempt);
+          logger.warn(`⚠️ ClickHouse command failed (attempt ${attempt + 1}/${this.maxRetries + 1}), retrying in ${delay}ms: ${error.message}`);
+          await this.sleep(delay);
+          continue;
+        }
+      }
+    }
+
+    // All retries failed - update circuit breaker
+    this.circuitBreakerFailures++;
+    if (this.circuitBreakerFailures >= this.CIRCUIT_BREAKER_THRESHOLD) {
+      this.circuitBreakerOpen = true;
+      logger.error(`❌ ClickHouse circuit breaker opened after ${this.circuitBreakerFailures} failures`);
+
+      setTimeout(() => {
+        this.circuitBreakerOpen = false;
+        this.circuitBreakerFailures = 0;
+        logger.info('🔄 ClickHouse circuit breaker reset');
+      }, this.CIRCUIT_BREAKER_RESET_TIME);
+    }
+
+    throw lastError || new Error('ClickHouse command failed after all retries');
+  }
+
+  /**
    * Insert data into ClickHouse table
    */
   async insert(table: string, rows: any[], format: string = 'JSONEachRow'): Promise<void> {

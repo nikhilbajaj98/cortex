@@ -3,6 +3,7 @@ import { ingestRouter } from './routes/ingest';
 import { kongIngestRouter } from './routes/kongIngest';
 import { metricsRouter } from './routes/metrics';
 import { demoRouter } from './routes/demo';
+import { controlPlaneRouter } from './routes/controlPlane';
 
 export const v1Router = Router();
 
@@ -11,6 +12,7 @@ v1Router.use('/ingest', ingestRouter);
 v1Router.use('/ingest/kong', kongIngestRouter);
 v1Router.use('/metrics', metricsRouter);
 v1Router.use('/demo', demoRouter);
+v1Router.use('/control-plane', controlPlaneRouter);
 
 // Health check endpoint
 v1Router.get('/health', (req, res) => {

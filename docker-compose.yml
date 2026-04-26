@@ -122,3 +122,25 @@ services:
     depends_on:
       - kong
     restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cortex-prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - cortex-ingest
+    restart: unless-stopped
+
+  cortex-ml-anomaly:
+    build:
+      context: ./ml-services/anomaly-service
+      dockerfile: Dockerfile
+    container_name: cortex-ml-anomaly
+    ports:
+      - "7001:7000"
+    restart: unless-stopped

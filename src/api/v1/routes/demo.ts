@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { scenarioGenerator, ScenarioName } from '../../../services/demo/scenarioGenerator';
-import { controlPlaneSimulator } from '../../../services/demo/controlPlaneSimulator';
+import { controlPlaneService } from '../../../services/control-plane/controlPlaneService';
 import logger from '../../../utils/logger';
 import { demoRateLimit } from '../middleware/rateLimit';
 
@@ -134,8 +134,14 @@ demoRouter.get('/control-plane/decisions', async (req: Request, res: Response) =
   try {
     const { timeWindow = '5m' } = req.query;
     const timeWindowStr = typeof timeWindow === 'string' ? timeWindow : '5m';
-    
-    const decisions = await controlPlaneSimulator.getAllDecisions(timeWindowStr);
+
+    // Update evaluator window for this polling call
+    controlPlaneService.setTimeWindow(timeWindowStr);
+    // Ensure store is populated (especially right after startup)
+    if (controlPlaneService.getAllDecisions().length === 0) {
+      await controlPlaneService.evaluateNow(timeWindowStr);
+    }
+    const decisions = controlPlaneService.getAllDecisions();
     
     res.status(200).json({
       success: true,
@@ -159,8 +165,12 @@ demoRouter.get('/control-plane/decisions/:serviceName', async (req: Request, res
     const { serviceName } = req.params;
     const { timeWindow = '5m' } = req.query;
     const timeWindowStr = typeof timeWindow === 'string' ? timeWindow : '5m';
-    
-    const decision = await controlPlaneSimulator.generateDecision(serviceName, timeWindowStr);
+
+    controlPlaneService.setTimeWindow(timeWindowStr);
+    if (!controlPlaneService.getDecision(serviceName)) {
+      await controlPlaneService.evaluateNow(timeWindowStr);
+    }
+    const decision = controlPlaneService.getDecision(serviceName);
     
     if (!decision) {
       return res.status(404).json({
@@ -189,20 +199,15 @@ demoRouter.get('/control-plane/decisions/:serviceName', async (req: Request, res
 demoRouter.post('/control-plane/decisions/:decisionId/execute', (req: Request, res: Response) => {
   try {
     const { decisionId } = req.params;
-    
-    // This is a simulation - in real implementation, this would call K8s API
-    logger.info(`🎯 Simulating execution of decision: ${decisionId}`);
-    
-    res.status(200).json({
-      success: true,
-      message: 'Decision execution simulated (demo mode)',
-      data: {
-        decisionId,
-        executed: true,
-        timestamp: new Date().toISOString(),
-        note: 'In production, this would execute the actual K8s action',
-      },
-    });
+
+    // decisionId is treated as serviceName for Phase 2 (UI does not call this today).
+    void (async () => {
+      const result = await controlPlaneService.executeDecision(decisionId);
+      if (!result) {
+        return res.status(404).json({ success: false, error: `No decision found for: ${decisionId}` });
+      }
+      return res.status(200).json({ success: true, data: result });
+    })();
   } catch (error) {
     logger.error(`❌ Error executing decision: ${error}`);
     res.status(500).json({
