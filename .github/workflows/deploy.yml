@@ -151,7 +151,7 @@ jobs:
             fi
             
             # Check Ingest API
-            if docker compose -f docker-compose.prod.yml exec -T cortex-ingest curl -f http://localhost:8080/health > /dev/null 2>&1; then
+            if docker compose -f docker-compose.prod.yml exec -T cortex-ingest curl -f http://localhost:8080/api/v1/health > /dev/null 2>&1; then
               echo "✅ Ingest API is healthy"
             else
               echo "⚠️  Ingest API health check failed"
