@@ -139,6 +139,7 @@ plugins:
 consumers:
   - username: test-producer
     keyauth_credentials:
-      - key: test-key
+      # Replaced at runtime from KONG_TEST_API_KEY (see infra/kong/docker-entrypoint.sh)
+      - key: __KONG_CONSUMER_API_KEY__
 
 

@@ -90,14 +90,15 @@ services:
     container_name: cortex-kong
     environment:
       KONG_DATABASE: "off"
-      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
       KONG_PROXY_LISTEN: "0.0.0.0:8000"
       KONG_ADMIN_LISTEN: "0.0.0.0:8001"
       KONG_LOG_LEVEL: info
       KONG_LOG_SECRET: ${KONG_LOG_SECRET:-changeme}
       KONG_TEST_API_KEY: ${KONG_TEST_API_KEY:-test-key}
+    entrypoint: ["/bin/sh", "/cortex-kong-entrypoint.sh"]
     volumes:
-      - ./infra/kong/kong.yml:/kong/declarative/kong.yml:ro
+      - ./infra/kong/kong.yml:/kong/declarative/kong.template.yml:ro
+      - ./infra/kong/docker-entrypoint.sh:/cortex-kong-entrypoint.sh:ro
     ports:
       - "8000:8000"
       - "8001:8001"
