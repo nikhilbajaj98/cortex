@@ -23,10 +23,14 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
+# Required for Docker: nginx hits the container’s bridge IP, not 127.0.0.1.
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/package.json ./package.json
 # Copy public directory (now guaranteed to exist with .gitkeep from builder stage)
 COPY --from=builder /app/public ./public
 EXPOSE 3000
-CMD ["npm", "start"]
+# Call next directly so listen flags are never lost via npm/sh; matches `next start -H 0.0.0.0 -p 3000`
+CMD ["node", "node_modules/next/dist/bin/next", "start", "-H", "0.0.0.0", "-p", "3000"]
