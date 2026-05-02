@@ -1,4 +1,6 @@
-version: '3.8'
+# Production ingress: only nginx publishes 80/443 to the host. Kong and Next.js are
+# reached via the Docker network (kong:8000, cortex-web:3000). Optional localhost-only
+# port bindings let you curl the stack from the server without exposing APIs on the public NIC.
 
 services:
   cortex-db:
@@ -101,7 +103,7 @@ services:
         condition: service_started
     restart: unless-stopped
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:8080/health || exit 1']
+      test: ['CMD', 'curl', '-f', 'http://127.0.0.1:8080/health']
       interval: 30s
       timeout: 10s
       retries: 3
@@ -122,8 +124,18 @@ services:
       KONG_TEST_API_KEY: ${KONG_TEST_API_KEY}
     volumes:
       - ./infra/kong/kong.yml:/kong/declarative/kong.yml:ro
+    ports:
+      - '127.0.0.1:8000:8000'
+      - '127.0.0.1:8001:8001'
     depends_on:
-      - cortex-ingest
+      cortex-ingest:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'kong', 'health']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
     restart: unless-stopped
     networks:
       - cortex-network
@@ -141,8 +153,21 @@ services:
       - KONG_API_KEY=${KONG_TEST_API_KEY}
       - NEXT_PUBLIC_KONG_URL=${NEXT_PUBLIC_KONG_URL:-https://cortex.yourdomain.com}
       - NEXT_PUBLIC_KONG_API_KEY=${KONG_TEST_API_KEY}
+    ports:
+      - '127.0.0.1:3000:3000'
     depends_on:
-      - kong
+      kong:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'node -e "fetch(''http://127.0.0.1:3000/'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     restart: unless-stopped
     networks:
       - cortex-network
@@ -157,8 +182,10 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
-      - kong
-      - cortex-web
+      kong:
+        condition: service_healthy
+      cortex-web:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - cortex-network
