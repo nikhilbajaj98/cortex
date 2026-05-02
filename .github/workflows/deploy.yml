@@ -113,7 +113,7 @@ jobs:
             
             # Run database migrations (if any)
             echo "🗄️  Running database migrations..."
-            docker compose -f docker-compose.prod.yml exec -T cortex-ingest npm run migrate 2>/dev/null || echo "⚠️  Migrations skipped (this is OK if no migrations exist)"
+            docker compose -f docker-compose.prod.yml exec -T cortex-ingest npm run migrate
             
             # Verify services are running
             echo "✅ Verifying services..."

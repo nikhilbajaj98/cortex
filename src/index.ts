@@ -11,6 +11,7 @@ import { storageSinkConsumer } from './services/storage/consumers/storageConsume
 import { analyticsConsumer } from './services/analytics/analyticsConsumer';
 import { clickHouseClient } from './infrastructure/connections/clickhouse';
 import logger from './utils/logger';
+import { controlPlaneService } from './services/control-plane/controlPlaneService';
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -153,4 +154,7 @@ app.listen(PORT, async () => {
 
   // Initialize Kafka services
   await initializeKafka();
+
+  // Start control plane (dry-run by default)
+  controlPlaneService.start();
 });
