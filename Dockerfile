@@ -15,8 +15,11 @@ WORKDIR /app
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 COPY package*.json ./
+# Use the same tree as the build stage so SQL migrations cannot drift from the
+# image (avoids empty/missing migrations when build context differs on the host).
+COPY --from=builder /app/migrations ./migrations
+RUN test -f migrations/001_create_events.sql && test -f migrations/clickhouse/001_init_analytics.sql
 
-RUN npm install
 EXPOSE 8080
 CMD ["node", "dist/index.js"]
 

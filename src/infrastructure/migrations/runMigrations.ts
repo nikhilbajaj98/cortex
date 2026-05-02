@@ -7,9 +7,16 @@ import { clickHouseClient } from '../connections/clickhouse';
 type MigrationResult = { name: string; applied: boolean; details?: string };
 
 function repoRoot(): string {
-  // dist/ lives at dist/... so repo root is one level above dist/ (or src/ in dev)
-  // We resolve from current file location to be resilient to cwd differences.
-  return path.resolve(__dirname, '../../../');
+  // Compiled: dist/infrastructure/migrations → repo root is three levels up.
+  const fromDist = path.resolve(__dirname, '../../../');
+  if (fs.existsSync(path.join(fromDist, 'migrations', '001_create_events.sql'))) {
+    return fromDist;
+  }
+  const fromCwd = path.join(process.cwd(), 'migrations', '001_create_events.sql');
+  if (fs.existsSync(fromCwd)) {
+    return process.cwd();
+  }
+  return fromDist;
 }
 
 function readSqlFile(relPathFromRoot: string): string {
